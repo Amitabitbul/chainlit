@@ -2,8 +2,8 @@ name: Publish Python package to GitHub Releases
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches:
+      - amit
 
 jobs:
   build:
@@ -27,24 +27,26 @@ jobs:
       run: |
         python setup.py sdist bdist_wheel
 
-    - name: Upload Release Asset
-      id: upload-release-asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Get version from setup.py
+      id: get_version
+      run: |
+        echo "::set-output name=version::$(python setup.py --version)"
+
+    - name: Create Git tag
+      id: tag
+      uses: actions/github-script@v6
       with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ./dist/*.whl
-        asset_name: my_package-${{ github.event.release.tag_name }}.whl
-        asset_content_type: application/zip
-
-  create_release:
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Check out the code
-      uses: actions/checkout@v2
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const version = '${{ steps.get_version.outputs.version }}';
+          const tagName = `v${version}`;
+          const { data: ref } = await github.git.createRef({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            ref: `refs/tags/${tagName}`,
+            sha: context.sha,
+          });
+          return { tagName };
 
     - name: Create Release
       id: create_release
@@ -52,8 +54,8 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
+        tag_name: ${{ steps.tag.outputs.tagName }}
+        release_name: Release ${{ steps.tag.outputs.tagName }}
         draft: false
         prerelease: false
 
@@ -65,5 +67,5 @@ jobs:
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
         asset_path: ./dist/*.whl
-        asset_name: my_package-${{ github.ref }}.whl
+        asset_name: my_package-${{ steps.tag.outputs.tagName }}.whl
         asset_content_type: application/zip
